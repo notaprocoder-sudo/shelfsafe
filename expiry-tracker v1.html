@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="manifest" href="manifest.json">
+<meta name="mobile-web-app-capable" content="yes">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0f1a0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>ShelfSafe — Expiry Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root {
+    --bg: #0a120a; --bg2: #111a11; --bg3: #182018; --card: #1a241a;
+    --border: #2a3a2a; --green: #4ade80; --green-dim: #22c55e44;
+    --green-glow: #4ade8022; --amber: #fbbf24; --amber-dim: #f59e0b33;
+    --red: #f87171; --red-dim: #ef444433; --text: #e8f5e8;
+    --text2: #9ab89a; --text3: #5a755a;
+    --mono: 'Space Mono', monospace; --sans: 'DM Sans', sans-serif;
+    --radius: 16px; --radius-sm: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100dvh; overflow-x: hidden; position: relative; }
+  body::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background: radial-gradient(ellipse 80% 60% at 50% -20%, #1a3d1a 0%, transparent 60%),
+                radial-gradient(ellipse 40% 40% at 90% 80%, #0f2a0f 0%, transparent 50%);
+  }
+  #app { position: relative; z-index: 1; max-width: 480px; margin: 0 auto; min-height: 100dvh; display: flex; flex-direction: column; }
+
+  /* HEADER */
+  header { padding: 20px 20px 0; display: flex; align-items: center; justify-content: space-between; }
+  .logo { display: flex; flex-direction: column; gap: 1px; }
+  .logo-name { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--green); letter-spacing: -0.5px; }
+  .logo-sub { font-size: 10px; color: var(--text3); letter-spacing: 2px; text-transform: uppercase; }
+  .alert-badge { background: var(--red-dim); border: 1px solid var(--red); color: var(--red); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-family: var(--mono); display: none; animation: pulse 2s infinite; }
+  .alert-badge.visible { display: block; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+
+  /* TABS */
+  .tabs { display: flex; gap: 4px; padding: 16px 20px 0; }
+  .tab { flex: 1; padding: 10px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text3); font-family: var(--mono); font-size: 11px; cursor: pointer; text-align: center; transition: all .2s; letter-spacing: 0.5px; }
+  .tab.active { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+
+  /* SCREENS */
+  .screen { display: none; flex: 1; padding: 16px 20px 100px; flex-direction: column; gap: 16px; }
+  .screen.active { display: flex; }
+
+  /* SCAN */
+  .scan-zone { background: var(--card); border: 2px dashed var(--border); border-radius: var(--radius); min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; cursor: pointer; transition: all .2s; position: relative; overflow: hidden; }
+  .scan-zone:active { border-color: var(--green); background: var(--green-glow); }
+  .scan-zone.scanning { border-color: var(--green); border-style: solid; }
+  #preview-img { width: 100%; height: 220px; object-fit: cover; border-radius: calc(var(--radius) - 2px); display: none; }
+  #preview-img.visible { display: block; }
+  .scan-icon { width: 56px; height: 56px; border: 2px solid var(--border); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: var(--text3); font-size: 24px; transition: all .2s; }
+  .scan-zone:active .scan-icon { border-color: var(--green); color: var(--green); }
+  .scan-label { font-size: 13px; color: var(--text3); font-family: var(--mono); }
+  #file-input { display: none; }
+
+  .btn-row { display: flex; gap: 10px; }
+  .btn { flex: 1; padding: 14px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg3); color: var(--text2); font-family: var(--mono); font-size: 13px; cursor: pointer; transition: all .2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn:active { opacity: .7; transform: scale(.98); }
+  .btn-primary { background: var(--green); color: #0a120a; border-color: var(--green); font-weight: 700; }
+  .btn-danger { border-color: var(--red); color: var(--red); background: var(--red-dim); }
+  .btn:disabled { opacity: .4; pointer-events: none; }
+
+  /* OCR STATUS */
+  .ocr-status { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; display: none; flex-direction: column; gap: 8px; }
+  .ocr-status.visible { display: flex; }
+  .ocr-status-label { font-size: 11px; color: var(--text3); font-family: var(--mono); letter-spacing: 1px; text-transform: uppercase; }
+  .ocr-bar-bg { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .ocr-bar { height: 100%; background: var(--green); border-radius: 2px; width: 0%; transition: width .3s; }
+  .ocr-text { font-size: 12px; color: var(--text2); font-family: var(--mono); }
+
+  /* RAW BOX */
+  .raw-box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; display: none; }
+  .raw-box.visible { display: block; }
+  .raw-title { font-size: 10px; color: var(--text3); font-family: var(--mono); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
+  .raw-content { font-size: 12px; color: var(--text2); font-family: var(--mono); white-space: pre-wrap; line-height: 1.6; max-height: 100px; overflow-y: auto; }
+
+  /* FORM */
+  .form-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; display: none; flex-direction: column; gap: 14px; }
+  .form-card.visible { display: flex; }
+  .form-title { font-family: var(--mono); font-size: 13px; color: var(--green); letter-spacing: 1px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 11px; color: var(--text3); font-family: var(--mono); letter-spacing: 1px; text-transform: uppercase; }
+  .field input, .field select { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; color: var(--text); font-family: var(--sans); font-size: 15px; outline: none; transition: border-color .2s; width: 100%; }
+  .field input:focus, .field select:focus { border-color: var(--green); }
+  .field select option { background: var(--bg2); }
+
+  /* BRAND PICKER */
+  .brand-picker-wrap { position: relative; }
+  .brand-search-input { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; color: var(--text); font-family: var(--sans); font-size: 15px; outline: none; width: 100%; transition: border-color .2s; }
+  .brand-search-input:focus { border-color: var(--green); }
+  .brand-dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--bg2); border: 1px solid var(--green); border-radius: var(--radius-sm); max-height: 200px; overflow-y: auto; z-index: 50; display: none; box-shadow: 0 8px 24px #0006; }
+  .brand-dropdown.open { display: block; }
+  .brand-option { padding: 11px 14px; font-size: 14px; color: var(--text2); cursor: pointer; border-bottom: 1px solid var(--border); transition: background .15s; }
+  .brand-option:last-child { border-bottom: none; }
+  .brand-option:active, .brand-option.highlighted { background: var(--green-dim); color: var(--green); }
+  .brand-option.no-match { color: var(--text3); font-style: italic; cursor: default; }
+
+  /* QUANTITY STEPPER */
+  .qty-row { display: flex; align-items: center; gap: 10px; }
+  .qty-btn { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg3); color: var(--text); font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all .15s; line-height: 1; }
+  .qty-btn:active { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+  .qty-input { flex: 1; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; color: var(--text); font-family: var(--mono); font-size: 18px; text-align: center; outline: none; transition: border-color .2s; }
+  .qty-input:focus { border-color: var(--green); }
+
+  /* PRODUCTS */
+  .filter-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--bg3); color: var(--text3); font-size: 12px; font-family: var(--mono); cursor: pointer; transition: all .2s; white-space: nowrap; }
+  .chip.active { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+  .chip.red.active { background: var(--red-dim); border-color: var(--red); color: var(--red); }
+  .chip.amber.active { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .products-list { display: flex; flex-direction: column; gap: 10px; }
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 60px 20px; color: var(--text3); font-family: var(--mono); font-size: 13px; text-align: center; }
+  .empty-icon { font-size: 40px; }
+  .product-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; position: relative; overflow: hidden; animation: slideIn .25s ease; }
+  @keyframes slideIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  .product-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--green); border-radius: 3px 0 0 3px; }
+  .product-card.warning::before { background: var(--amber); }
+  .product-card.expired::before { background: var(--red); }
+  .product-card.warning { border-color: #f59e0b44; }
+  .product-card.expired { border-color: #ef444444; }
+  .pc-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .pc-name { font-size: 15px; font-weight: 600; color: var(--text); flex: 1; }
+  .pc-status { font-size: 10px; font-family: var(--mono); padding: 3px 10px; border-radius: 12px; white-space: nowrap; flex-shrink: 0; }
+  .pc-status.ok { background: var(--green-dim); color: var(--green); }
+  .pc-status.warn { background: var(--amber-dim); color: var(--amber); }
+  .pc-status.exp { background: var(--red-dim); color: var(--red); }
+  .pc-meta { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  .pc-meta-item { font-size: 12px; color: var(--text3); font-family: var(--mono); }
+  .pc-meta-item span { color: var(--text2); }
+  .pc-actions { margin-top: 12px; display: flex; gap: 8px; }
+  .pc-btn { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text3); font-size: 12px; font-family: var(--mono); cursor: pointer; transition: all .2s; }
+  .pc-btn:active { opacity: .6; }
+  .pc-btn.del { color: var(--red); border-color: var(--red-dim); }
+
+  /* ALERTS */
+  .alert-card { background: var(--card); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 6px; animation: slideIn .25s ease; }
+  .alert-card.critical { border: 1px solid var(--red); }
+  .alert-card.soon { border: 1px solid var(--amber); }
+  .alert-icon { font-size: 20px; }
+  .alert-name { font-size: 15px; font-weight: 600; }
+  .alert-detail { font-size: 12px; color: var(--text2); font-family: var(--mono); }
+  .alert-card.critical .alert-name { color: var(--red); }
+  .alert-card.soon .alert-name { color: var(--amber); }
+
+  /* SETTINGS */
+  .settings-section { display: flex; flex-direction: column; gap: 10px; }
+  .settings-title { font-family: var(--mono); font-size: 11px; color: var(--text3); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+  .setting-row { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .setting-row-info { display: flex; flex-direction: column; gap: 2px; }
+  .setting-label { font-size: 14px; color: var(--text); }
+  .setting-desc { font-size: 11px; color: var(--text3); font-family: var(--mono); }
+  .setting-row input[type=number] { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; color: var(--text); font-family: var(--mono); font-size: 14px; width: 70px; text-align: center; outline: none; }
+  .setting-row input[type=number]:focus { border-color: var(--green); }
+
+  /* BRAND MANAGEMENT IN SETTINGS */
+  .brand-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; width: 100%; }
+  .brand-item { display: flex; align-items: center; justify-content: space-between; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; }
+  .brand-item-name { font-size: 14px; color: var(--text2); }
+  .brand-item-del { background: none; border: none; color: var(--text3); font-size: 16px; cursor: pointer; padding: 2px 6px; transition: color .15s; }
+  .brand-item-del:active { color: var(--red); }
+  .add-brand-row { display: flex; gap: 8px; width: 100%; }
+  .add-brand-input { flex: 1; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; color: var(--text); font-family: var(--sans); font-size: 14px; outline: none; transition: border-color .2s; }
+  .add-brand-input:focus { border-color: var(--green); }
+
+  /* BOTTOM NAV */
+  .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px; background: var(--bg2); border-top: 1px solid var(--border); display: flex; padding: 8px 0 env(safe-area-inset-bottom, 8px); z-index: 100; backdrop-filter: blur(16px); }
+  .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 4px; cursor: pointer; background: none; border: none; color: var(--text3); font-family: var(--mono); font-size: 9px; letter-spacing: 0.5px; transition: color .2s; position: relative; }
+  .nav-btn.active { color: var(--green); }
+  .nav-icon { font-size: 20px; line-height: 1; }
+  .nav-dot { position: absolute; top: 6px; right: calc(50% - 18px); width: 7px; height: 7px; background: var(--red); border-radius: 50%; display: none; border: 2px solid var(--bg2); }
+  .nav-dot.visible { display: block; }
+
+  /* TOAST */
+  #toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-80px); background: var(--card); border: 1px solid var(--green); border-radius: 12px; padding: 12px 20px; font-family: var(--mono); font-size: 13px; color: var(--green); z-index: 200; transition: transform .3s ease; white-space: nowrap; max-width: 90vw; text-align: center; }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.error { border-color: var(--red); color: var(--red); }
+
+  /* MODAL */
+  #modal-overlay { position: fixed; inset: 0; background: #000a; z-index: 150; display: none; align-items: flex-end; justify-content: center; padding: 0 0 env(safe-area-inset-bottom, 0); }
+  #modal-overlay.open { display: flex; }
+  .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; padding: 24px 20px; width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 16px; animation: slideUp .25s ease; }
+  @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
+  .modal-title { font-family: var(--mono); font-size: 15px; color: var(--text); }
+  .modal-sub { font-size: 13px; color: var(--text2); }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="logo">
+      <div class="logo-name">ShelfSafe</div>
+      <div class="logo-sub">Expiry Tracker</div>
+    </div>
+    <div class="alert-badge" id="alert-badge">⚠ <span id="alert-count">0</span> expiring</div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="scan">⊕ Scan</button>
+    <button class="tab" data-tab="products">📦 Products</button>
+    <button class="tab" data-tab="alerts">🔔 Alerts</button>
+    <button class="tab" data-tab="settings">⚙ Settings</button>
+  </div>
+
+  <!-- SCAN SCREEN -->
+  <div class="screen active" id="screen-scan">
+    <div class="scan-zone" id="scan-zone" onclick="document.getElementById('file-input').click()">
+      <img id="preview-img" alt="label preview">
+      <div id="scan-placeholder">
+        <div class="scan-icon">📷</div>
+        <div class="scan-label">TAP TO SCAN LABEL</div>
+      </div>
+    </div>
+    <input type="file" id="file-input" accept="image/*" capture="environment">
+
+    <div class="btn-row">
+      <button class="btn" id="btn-gallery" onclick="triggerGallery()">🖼 Gallery</button>
+      <button class="btn btn-primary" id="btn-ocr" disabled onclick="runOCR()">🔍 Extract Text</button>
+    </div>
+
+    <div class="ocr-status" id="ocr-status">
+      <div class="ocr-status-label">READING LABEL…</div>
+      <div class="ocr-bar-bg"><div class="ocr-bar" id="ocr-bar"></div></div>
+      <div class="ocr-text" id="ocr-msg">Initialising…</div>
+    </div>
+
+    <div class="raw-box" id="raw-box">
+      <div class="raw-title">RAW OCR TEXT</div>
+      <div class="raw-content" id="raw-content"></div>
+    </div>
+
+    <div class="form-card" id="form-card">
+      <div class="form-title">// CONFIRM DETAILS</div>
+      <div class="field">
+        <label>Product Name</label>
+        <input type="text" id="f-name" placeholder="e.g. Brownie Cookies 200g">
+      </div>
+      <div class="field">
+        <label>Expiry Date</label>
+        <input type="date" id="f-expiry">
+      </div>
+      <div class="field">
+        <label>Brand</label>
+        <div class="brand-picker-wrap">
+          <input type="text" class="brand-search-input" id="f-brand"
+            placeholder="Search or type brand name…"
+            autocomplete="off"
+            oninput="onBrandSearch()"
+            onfocus="onBrandFocus()"
+            onblur="onBrandBlur()">
+          <div class="brand-dropdown" id="brand-dropdown"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Quantity</label>
+        <div class="qty-row">
+          <button type="button" class="qty-btn" onclick="adjustQty(-1)">−</button>
+          <input type="number" class="qty-input" id="f-qty" value="1" min="1" max="9999">
+          <button type="button" class="qty-btn" onclick="adjustQty(1)">+</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Shelf / Location (optional)</label>
+        <input type="text" id="f-shelf" placeholder="e.g. Aisle 3, Row B">
+      </div>
+      <div class="btn-row">
+        <button class="btn" onclick="resetScan()">✕ Cancel</button>
+        <button class="btn btn-primary" onclick="saveProduct()">✓ Save Product</button>
+      </div>
+    </div>
+
+    <div class="btn-row" id="manual-row">
+      <button class="btn" style="flex:1" onclick="showManualForm()">✎ Add Manually</button>
+    </div>
+  </div>
+
+  <!-- PRODUCTS SCREEN -->
+  <div class="screen" id="screen-products">
+    <div class="filter-row">
+      <button class="chip active" data-filter="all" onclick="setFilter('all',this)">All</button>
+      <button class="chip red" data-filter="expired" onclick="setFilter('expired',this)">Expired</button>
+      <button class="chip amber" data-filter="soon" onclick="setFilter('soon',this)">Expiring Soon</button>
+      <button class="chip" data-filter="ok" onclick="setFilter('ok',this)">Safe</button>
+    </div>
+    <div class="products-list" id="products-list"></div>
+  </div>
+
+  <!-- ALERTS SCREEN -->
+  <div class="screen" id="screen-alerts">
+    <div id="alerts-list"></div>
+  </div>
+
+  <!-- SETTINGS SCREEN -->
+  <div class="screen" id="screen-settings">
+    <div class="settings-section">
+      <div class="settings-title">Notification Thresholds</div>
+      <div class="setting-row">
+        <div class="setting-row-info">
+          <div class="setting-label">Critical Warning</div>
+          <div class="setting-desc">Mark as expiring soon</div>
+        </div>
+        <input type="number" id="s-critical" min="1" max="30" value="3"> days
+      </div>
+      <div class="setting-row">
+        <div class="setting-row-info">
+          <div class="setting-label">Early Warning</div>
+          <div class="setting-desc">Show in alerts tab</div>
+        </div>
+        <input type="number" id="s-warn" min="1" max="90" value="7"> days
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-title">Brands</div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:12px">
+        <div class="setting-label">Add Brand</div>
+        <div class="add-brand-row">
+          <input type="text" class="add-brand-input" id="new-brand-input"
+            placeholder="e.g. Lulu, Nestlé, Amul…"
+            onkeydown="if(event.key==='Enter')addBrandFromInput()">
+          <button class="btn btn-primary" style="flex:0;padding:10px 18px;white-space:nowrap" onclick="addBrandFromInput()">+ Add</button>
+        </div>
+        <div class="brand-list" id="brand-list"></div>
+      </div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+        <div class="setting-row-info">
+          <div class="setting-label">Export / Import Brand List</div>
+          <div class="setting-desc">Share brands across devices</div>
+        </div>
+        <div class="btn-row" style="width:100%">
+          <button class="btn" onclick="exportBrands()">⬇ Export</button>
+          <button class="btn" onclick="document.getElementById('import-brands-input').click()">⬆ Import</button>
+        </div>
+        <input type="file" id="import-brands-input" accept=".json" style="display:none" onchange="importBrands(event)">
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-title">Data</div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+        <div class="setting-row-info">
+          <div class="setting-label">Export All Products</div>
+          <div class="setting-desc">Save as JSON or CSV file</div>
+        </div>
+        <div class="btn-row" style="width:100%">
+          <button class="btn" onclick="exportData('json')">⬇ JSON</button>
+          <button class="btn" onclick="exportData('csv')">⬇ CSV</button>
+        </div>
+      </div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:10px">
+        <div class="setting-row-info">
+          <div class="setting-label">Import Products from JSON</div>
+          <div class="setting-desc">Restore a previous export</div>
+        </div>
+        <button class="btn" style="width:100%" onclick="document.getElementById('import-input').click()">⬆ Import JSON</button>
+        <input type="file" id="import-input" accept=".json" style="display:none" onchange="importData(event)">
+      </div>
+      <div class="setting-row" style="cursor:pointer" onclick="confirmClearAll()">
+        <div class="setting-row-info">
+          <div class="setting-label" style="color:var(--red)">Clear All Data</div>
+          <div class="setting-desc">Permanently delete all products</div>
+        </div>
+        <span style="color:var(--red)">→</span>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-title">About</div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <div class="setting-label">ShelfSafe v1.1</div>
+        <div class="setting-desc">On-device OCR · No internet required · Data stored locally</div>
+        <div class="setting-desc" id="storage-info" style="margin-top:4px;color:var(--green)"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+  <button class="nav-btn active" data-tab="scan" onclick="switchTab('scan',this)"><span class="nav-icon">📷</span>SCAN</button>
+  <button class="nav-btn" data-tab="products" onclick="switchTab('products',this)"><span class="nav-icon">📦</span>ITEMS</button>
+  <button class="nav-btn" data-tab="alerts" onclick="switchTab('alerts',this)"><span class="nav-icon">🔔</span>ALERTS<div class="nav-dot" id="nav-dot"></div></button>
+  <button class="nav-btn" data-tab="settings" onclick="switchTab('settings',this)"><span class="nav-icon">⚙</span>SETTINGS</button>
+</nav>
+
+<div id="toast"></div>
+
+<div id="modal-overlay">
+  <div class="modal">
+    <div class="modal-title" id="modal-title">Confirm Action</div>
+    <div class="modal-sub" id="modal-sub">Are you sure?</div>
+    <div class="btn-row">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" id="modal-confirm-btn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────────────────
+let DB, activeFilter = 'all';
+let brands = [];
+const STORE = 'products';
+const DB_NAME = 'shelfsafe_db';
+const DB_VER = 1;
+
+// ── DB ─────────────────────────────────────────────────────────────────────────
+function initDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB_NAME, DB_VER);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        const s = db.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
+        s.createIndex('expiry', 'expiry', { unique: false });
+      }
+    };
+    req.onsuccess = e => { DB = e.target.result; res(); };
+    req.onerror = () => rej(req.error);
+  });
+}
+function dbOp(mode, fn) {
+  return new Promise((res, rej) => {
+    const tx = DB.transaction(STORE, mode);
+    const store = tx.objectStore(STORE);
+    const req = fn(store);
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
+function getAllProducts() {
+  return new Promise((res, rej) => {
+    const tx = DB.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
+
+// ── PERSIST ────────────────────────────────────────────────────────────────────
+async function requestPersist() {
+  if (navigator.storage && navigator.storage.persist) await navigator.storage.persist();
+}
+
+// ── TABS ───────────────────────────────────────────────────────────────────────
+function switchTab(tab, btn) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn, .tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('screen-' + tab).classList.add('active');
+  document.querySelectorAll('[data-tab="' + tab + '"]').forEach(b => b.classList.add('active'));
+  if (tab === 'products') renderProducts();
+  if (tab === 'alerts') renderAlerts();
+  if (tab === 'settings') { renderBrandList(); updateStorageInfo(); }
+}
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab, t)));
+
+// ── BRANDS ─────────────────────────────────────────────────────────────────────
+function loadBrands() {
+  try { brands = JSON.parse(localStorage.getItem('shelfsafe_brands') || '[]'); }
+  catch { brands = []; }
+}
+function saveBrands() { localStorage.setItem('shelfsafe_brands', JSON.stringify(brands)); }
+
+function renderBrandList() {
+  const list = document.getElementById('brand-list');
+  if (!list) return;
+  if (!brands.length) {
+    list.innerHTML = '<div style="font-size:12px;color:var(--text3);font-family:var(--mono);padding:6px 2px">No brands yet. Add one above.</div>';
+    return;
+  }
+  list.innerHTML = brands.map((b, i) =>
+    '<div class="brand-item"><span class="brand-item-name">' + escHtml(b) + '</span><button class="brand-item-del" onclick="deleteBrand(' + i + ')">✕</button></div>'
+  ).join('');
+}
+
+function addBrandFromInput() {
+  const inp = document.getElementById('new-brand-input');
+  const val = inp.value.trim();
+  if (!val) return;
+  if (brands.some(b => b.toLowerCase() === val.toLowerCase())) { showToast('Brand already exists', true); return; }
+  brands.push(val);
+  brands.sort((a, b) => a.localeCompare(b));
+  saveBrands(); renderBrandList();
+  inp.value = '';
+  showToast('Added: ' + val);
+}
+
+function deleteBrand(idx) {
+  brands.splice(idx, 1);
+  saveBrands(); renderBrandList();
+}
+
+function exportBrands() {
+  if (!brands.length) { showToast('No brands to export', true); return; }
+  const blob = new Blob([JSON.stringify(brands, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'shelfsafe-brands-' + todayStr() + '.json';
+  a.click();
+  showToast('Exported ' + brands.length + ' brands');
+}
+
+function importBrands(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (!Array.isArray(data)) throw new Error();
+      let added = 0;
+      data.forEach(b => {
+        if (typeof b === 'string' && b.trim() && !brands.some(x => x.toLowerCase() === b.trim().toLowerCase())) {
+          brands.push(b.trim()); added++;
+        }
+      });
+      brands.sort((a, b) => a.localeCompare(b));
+      saveBrands(); renderBrandList();
+      showToast('Imported ' + added + ' brands');
+    } catch { showToast('Invalid brand file', true); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+// ── BRAND SEARCH PICKER ────────────────────────────────────────────────────────
+let brandBlurTimeout = null;
+
+function onBrandFocus() {
+  clearTimeout(brandBlurTimeout);
+  renderBrandDropdown(document.getElementById('f-brand').value);
+}
+function onBrandBlur() {
+  brandBlurTimeout = setTimeout(() => document.getElementById('brand-dropdown').classList.remove('open'), 200);
+}
+function onBrandSearch() { renderBrandDropdown(document.getElementById('f-brand').value); }
+
+function renderBrandDropdown(query) {
+  const dd = document.getElementById('brand-dropdown');
+  const q = query.trim().toLowerCase();
+  const filtered = q ? brands.filter(b => b.toLowerCase().includes(q)) : brands;
+  if (!filtered.length) {
+    dd.innerHTML = q
+      ? '<div class="brand-option no-match">No match — will save as "' + escHtml(query) + '"</div>'
+      : '<div class="brand-option no-match">No brands yet — add in Settings ⚙</div>';
+  } else {
+    dd.innerHTML = filtered.map(b =>
+      '<div class="brand-option" onmousedown="selectBrand(\'' + escHtml(b).replace(/'/g, "\\'") + '\')">' + escHtml(b) + '</div>'
+    ).join('');
+  }
+  dd.classList.add('open');
+}
+function selectBrand(name) {
+  document.getElementById('f-brand').value = name;
+  document.getElementById('brand-dropdown').classList.remove('open');
+}
+
+// ── QUANTITY ───────────────────────────────────────────────────────────────────
+function adjustQty(delta) {
+  const inp = document.getElementById('f-qty');
+  inp.value = Math.max(1, (parseInt(inp.value) || 1) + delta);
+}
+
+// ── IMAGE / OCR ────────────────────────────────────────────────────────────────
+let currentImageFile = null;
+document.getElementById('file-input').addEventListener('change', handleImage);
+
+function triggerGallery() {
+  const fi = document.getElementById('file-input');
+  fi.removeAttribute('capture');
+  fi.click();
+  setTimeout(() => fi.setAttribute('capture', 'environment'), 500);
+}
+
+function handleImage(e) {
+  const file = e.target.files[0]; if (!file) return;
+  currentImageFile = file;
+  const url = URL.createObjectURL(file);
+  const img = document.getElementById('preview-img');
+  img.src = url; img.classList.add('visible');
+  document.getElementById('scan-placeholder').style.display = 'none';
+  document.getElementById('btn-ocr').disabled = false;
+  document.getElementById('raw-box').classList.remove('visible');
+  document.getElementById('form-card').classList.remove('visible');
+  document.getElementById('manual-row').style.display = 'none';
+}
+
+function preprocessImage(file) {
+  return new Promise(res => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX = 1600;
+      let w = img.width, h = img.height;
+      if (w > MAX || h > MAX) { const s = MAX / Math.max(w, h); w = Math.round(w*s); h = Math.round(h*s); }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const id = ctx.getImageData(0, 0, w, h);
+      const d = id.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
+        const adjusted = Math.min(255, Math.max(0, (gray - 128) * 1.5 + 128));
+        d[i] = d[i+1] = d[i+2] = adjusted;
+      }
+      ctx.putImageData(id, 0, 0);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(blob => res(blob), 'image/png');
+    };
+    img.src = url;
+  });
+}
+
+async function runOCR() {
+  if (!currentImageFile) return;
+  const status = document.getElementById('ocr-status');
+  const bar = document.getElementById('ocr-bar');
+  const msg = document.getElementById('ocr-msg');
+  status.classList.add('visible');
+  document.getElementById('btn-ocr').disabled = true;
+  document.getElementById('raw-box').classList.remove('visible');
+  document.getElementById('form-card').classList.remove('visible');
+  try {
+    msg.textContent = 'Preprocessing image…'; bar.style.width = '5%';
+    const processedBlob = await preprocessImage(currentImageFile);
+    const result = await Tesseract.recognize(processedBlob, 'eng', {
+      logger: p => {
+        if (p.status === 'recognizing text') {
+          bar.style.width = (5 + p.progress * 95) + '%';
+          msg.textContent = 'Reading… ' + Math.round(p.progress * 100) + '%';
+        } else { msg.textContent = p.status; }
+      }
+    });
+    const raw = result.data.text;
+    status.classList.remove('visible');
+    document.getElementById('raw-content').textContent = raw || '(no text detected)';
+    document.getElementById('raw-box').classList.add('visible');
+    const parsed = parseLabel(raw);
+    showForm(parsed.name, parsed.date);
+  } catch (err) {
+    status.classList.remove('visible');
+    showToast('OCR failed. Try a clearer photo.', true);
+    document.getElementById('btn-ocr').disabled = false;
+    document.getElementById('manual-row').style.display = 'flex';
+  }
+}
+
+// ── PARSER ─────────────────────────────────────────────────────────────────────
+const MONTH_MAP = { jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12' };
+
+function extractDateFromLine(line) {
+  let m = line.match(/\b(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})\b/);
+  if (m && +m[2]>=1 && +m[2]<=12 && +m[1]>=1 && +m[1]<=31)
+    return m[3] + '-' + m[2].padStart(2,'0') + '-' + m[1].padStart(2,'0');
+  m = line.match(/\b(\d{4})[-\/\.](\d{1,2})[-\/\.](\d{1,2})\b/);
+  if (m && +m[2]>=1 && +m[2]<=12 && +m[3]>=1 && +m[3]<=31)
+    return m[1] + '-' + m[2].padStart(2,'0') + '-' + m[3].padStart(2,'0');
+  m = line.match(/\b(\d{1,2})[\s\-\/]([A-Za-z]{3})[\s\-\/](\d{2,4})\b/);
+  if (m) { const mo = MONTH_MAP[m[2].toLowerCase().slice(0,3)]; if (mo) { const yr = m[3].length===2?'20'+m[3]:m[3]; return yr+'-'+mo+'-'+m[1].padStart(2,'0'); } }
+  m = line.match(/\b(\d{1,2})[-\/](\d{4})\b/);
+  if (m && +m[1]>=1 && +m[1]<=12) return m[2]+'-'+m[1].padStart(2,'0')+'-01';
+  m = line.match(/\b([A-Za-z]{3})[\s\/\-](\d{4})\b/);
+  if (m && MONTH_MAP[m[1].toLowerCase()]) return m[2]+'-'+MONTH_MAP[m[1].toLowerCase()]+'-01';
+  return null;
+}
+
+function scoreNameLine(line) {
+  const clean = line.replace(/[^a-zA-Z0-9 ]/g,'').trim();
+  if (clean.length < 3) return -1;
+  const alphaRatio = (clean.match(/[a-zA-Z]/g)||[]).length / (line.length||1);
+  if (alphaRatio < 0.4) return -1;
+  const lower = line.toLowerCase();
+  const rejectWords = ['net weight','mfg','exp','batch','m.r.p','mrp','incl','usp','ingredients','mfd','pkd','mkted','lulu','international','shopping','vip road','email','fssai','nutritive','calories','protein','sodium','fat','carbo','fibre','sugar','calcium','iron','vitamin','potassium','serving','cholesterol'];
+  if (rejectWords.some(w => lower.includes(w))) return -1;
+  if (/^\d+$/.test(clean)) return -1;
+  if (/^[A-Z0-9]{6,}$/.test(clean)) return -1;
+  const words = clean.split(' ').filter(Boolean);
+  const titleWords = words.filter(w => /^[A-Z][a-z]/.test(w)).length;
+  let score = titleWords * 3 + clean.length * 0.5;
+  const goodWords = ['cookie','cookies','biscuit','cake','bread','chips','chocolate','millet','ghee','ragi','cream','milk','juice','drink','water','coffee','tea','rice','wheat','flour','powder','snack','wafer','bar','roll','mini','double'];
+  if (goodWords.some(w => lower.includes(w))) score += 20;
+  return score;
+}
+
+function parseLabel(rawText) {
+  const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+  let expiryDate = null, mfgDate = null, name = '';
+  const expiryKw = /exp[\.\s]?\s*date|expiry|exp[\.\s]|best\s*before|bb[\.\s:]|use\s*by|use\s*before/i;
+  const mfgKw = /mfg[\.\s]?\s*date|mfg[\.\s]|manufactured|manuf|mfd[\.\s]/i;
+
+  for (const line of lines) {
+    if (!expiryDate && expiryKw.test(line)) { const d = extractDateFromLine(line); if (d) expiryDate = d; }
+    if (!mfgDate && mfgKw.test(line)) { const d = extractDateFromLine(line); if (d) mfgDate = d; }
+  }
+  if (!expiryDate) {
+    for (let i = 0; i < lines.length - 1; i++) {
+      if (expiryKw.test(lines[i])) {
+        const d = extractDateFromLine(lines[i+1]) || (i+2 < lines.length ? extractDateFromLine(lines[i+2]) : null);
+        if (d) { expiryDate = d; break; }
+      }
+    }
+  }
+  if (!expiryDate) {
+    const allDates = lines.map(l => extractDateFromLine(l)).filter(Boolean);
+    if (allDates.length === 1) expiryDate = allDates[0];
+    else if (allDates.length > 1) { allDates.sort(); expiryDate = allDates[allDates.length-1]; }
+  }
+
+  const netWeightIdx = lines.findIndex(l => /net\s*weight/i.test(l));
+  const candidates = lines
+    .slice(0, netWeightIdx > 0 ? netWeightIdx : lines.length)
+    .map(l => ({ line: l, score: scoreNameLine(l) }))
+    .filter(x => x.score > 0)
+    .sort((a,b) => b.score - a.score);
+
+  if (candidates.length > 0) {
+    const top = candidates[0].line;
+    const topIdx = lines.indexOf(top);
+    let combined = top;
+    if (topIdx >= 0 && topIdx+1 < lines.length && candidates.some(c => c.line === lines[topIdx+1])) {
+      if (scoreNameLine(lines[topIdx+1]) > 5) combined = top + ' ' + lines[topIdx+1];
+    }
+    name = combined.replace(/\.$/, '').replace(/[^a-zA-Z0-9 &.,'()-]/g,' ').replace(/\s+/g,' ').trim();
+  }
+  return { name, date: expiryDate || '' };
+}
+
+// ── FORM ───────────────────────────────────────────────────────────────────────
+function showForm(name='', date='') {
+  document.getElementById('f-name').value = name;
+  document.getElementById('f-expiry').value = date;
+  document.getElementById('f-brand').value = '';
+  document.getElementById('f-qty').value = 1;
+  document.getElementById('f-shelf').value = '';
+  document.getElementById('form-card').classList.add('visible');
+  document.getElementById('manual-row').style.display = 'none';
+  document.getElementById('f-name').focus();
+}
+function showManualForm() {
+  showForm();
+}
+
+async function saveProduct() {
+  const name = document.getElementById('f-name').value.trim();
+  const expiry = document.getElementById('f-expiry').value;
+  if (!name) { showToast('Please enter a product name', true); return; }
+  if (!expiry) { showToast('Please enter an expiry date', true); return; }
+  const product = {
+    name, expiry,
+    brand: document.getElementById('f-brand').value.trim(),
+    qty: parseInt(document.getElementById('f-qty').value) || 1,
+    shelf: document.getElementById('f-shelf').value.trim(),
+    addedAt: new Date().toISOString()
+  };
+  await dbOp('readwrite', s => s.add(product));
+  showToast('✓ ' + name + ' saved!');
+  resetScan(); updateAlertBadge();
+}
+
+function resetScan() {
+  currentImageFile = null;
+  const img = document.getElementById('preview-img');
+  img.src = ''; img.classList.remove('visible');
+  document.getElementById('scan-placeholder').style.display = '';
+  document.getElementById('btn-ocr').disabled = true;
+  document.getElementById('ocr-status').classList.remove('visible');
+  document.getElementById('raw-box').classList.remove('visible');
+  document.getElementById('form-card').classList.remove('visible');
+  document.getElementById('manual-row').style.display = 'flex';
+  document.getElementById('file-input').value = '';
+  document.getElementById('ocr-bar').style.width = '0%';
+  document.getElementById('brand-dropdown').classList.remove('open');
+}
+
+// ── PRODUCTS ───────────────────────────────────────────────────────────────────
+function setFilter(f, el) {
+  activeFilter = f;
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  renderProducts();
+}
+
+function getStatus(expiry) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const exp = new Date(expiry + 'T00:00:00');
+  const diff = Math.ceil((exp - today) / 86400000);
+  const critDays = parseInt(document.getElementById('s-critical').value) || 3;
+  const warnDays = parseInt(document.getElementById('s-warn').value) || 7;
+  if (diff < 0) return { label: 'EXPIRED', cls: 'expired', days: diff };
+  if (diff <= critDays) return { label: diff + 'd left', cls: 'warning', days: diff };
+  if (diff <= warnDays) return { label: diff + 'd left', cls: 'warning', days: diff };
+  return { label: diff + 'd left', cls: 'ok', days: diff };
+}
+
+async function renderProducts() {
+  const list = document.getElementById('products-list');
+  list.innerHTML = '';
+  const products = await getAllProducts();
+  const warnDays = parseInt(document.getElementById('s-warn').value) || 7;
+  let filtered = products.filter(p => {
+    const s = getStatus(p.expiry);
+    if (activeFilter === 'expired') return s.days < 0;
+    if (activeFilter === 'soon') return s.days >= 0 && s.days <= warnDays;
+    if (activeFilter === 'ok') return s.days > warnDays;
+    return true;
+  });
+  filtered.sort((a,b) => new Date(a.expiry) - new Date(b.expiry));
+  if (!filtered.length) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div>No products here</div></div>';
+    return;
+  }
+  filtered.forEach(p => {
+    const s = getStatus(p.expiry);
+    const statusCls = s.cls === 'ok' ? 'ok' : s.cls === 'expired' ? 'exp' : 'warn';
+    const card = document.createElement('div');
+    card.className = 'product-card ' + (s.cls === 'ok' ? '' : s.cls === 'expired' ? 'expired' : 'warning');
+    card.innerHTML =
+      '<div class="pc-header"><div class="pc-name">' + escHtml(p.name) + '</div><div class="pc-status ' + statusCls + '">' + s.label + '</div></div>' +
+      '<div class="pc-meta">' +
+        '<div class="pc-meta-item">EXPIRY <span>' + formatDate(p.expiry) + '</span></div>' +
+        (p.brand ? '<div class="pc-meta-item">BRAND <span>' + escHtml(p.brand) + '</span></div>' : '') +
+        '<div class="pc-meta-item">QTY <span>' + (p.qty || 1) + '</span></div>' +
+        (p.shelf ? '<div class="pc-meta-item">SHELF <span>' + escHtml(p.shelf) + '</span></div>' : '') +
+      '</div>' +
+      '<div class="pc-actions"><button class="pc-btn del" onclick="deleteProd(' + p.id + ', \'' + escHtml(p.name).replace(/'/g,"\\'") + '\')">🗑 Delete</button></div>';
+    list.appendChild(card);
+  });
+}
+
+async function deleteProd(id, name) {
+  document.getElementById('modal-title').textContent = 'Delete Product';
+  document.getElementById('modal-sub').textContent = 'Remove "' + name + '"? This cannot be undone.';
+  document.getElementById('modal-confirm-btn').onclick = async () => {
+    await dbOp('readwrite', s => s.delete(id));
+    closeModal(); showToast('Product removed'); renderProducts(); updateAlertBadge();
+  };
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeModal() { document.getElementById('modal-overlay').classList.remove('open'); }
+document.getElementById('modal-overlay').addEventListener('click', e => { if (e.target === document.getElementById('modal-overlay')) closeModal(); });
+
+// ── ALERTS ─────────────────────────────────────────────────────────────────────
+async function renderAlerts() {
+  const list = document.getElementById('alerts-list');
+  list.innerHTML = '';
+  const products = await getAllProducts();
+  const warnDays = parseInt(document.getElementById('s-warn').value) || 7;
+  const critDays = parseInt(document.getElementById('s-critical').value) || 3;
+  const alerts = products.map(p => ({...p, s: getStatus(p.expiry)})).filter(p => p.s.days <= warnDays).sort((a,b) => a.s.days - b.s.days);
+  if (!alerts.length) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon">✅</div><div>All products are safe!</div><div style="font-size:11px;color:var(--text3)">Nothing expiring within ' + warnDays + ' days</div></div>';
+    return;
+  }
+  alerts.forEach(p => {
+    const isCrit = p.s.days <= critDays;
+    const card = document.createElement('div');
+    card.className = 'alert-card ' + (isCrit ? 'critical' : 'soon');
+    const label = p.s.days < 0 ? 'EXPIRED ' + Math.abs(p.s.days) + ' days ago' : p.s.days === 0 ? 'EXPIRES TODAY' : 'Expires in ' + p.s.days + ' day' + (p.s.days > 1 ? 's' : '');
+    card.innerHTML =
+      '<div class="alert-icon">' + (p.s.days < 0 ? '🚫' : isCrit ? '🔴' : '🟡') + '</div>' +
+      '<div class="alert-name">' + escHtml(p.name) + '</div>' +
+      '<div class="alert-detail">' + label + ' · ' + formatDate(p.expiry) +
+        (p.brand ? ' · ' + escHtml(p.brand) : '') +
+        ' · Qty: ' + (p.qty || 1) +
+        (p.shelf ? ' · ' + escHtml(p.shelf) : '') + '</div>';
+    list.appendChild(card);
+  });
+}
+
+async function updateAlertBadge() {
+  const products = await getAllProducts();
+  const warnDays = parseInt(document.getElementById('s-warn').value) || 7;
+  const count = products.filter(p => getStatus(p.expiry).days <= warnDays).length;
+  document.getElementById('alert-badge').classList.toggle('visible', count > 0);
+  document.getElementById('alert-count').textContent = count;
+  document.getElementById('nav-dot').classList.toggle('visible', count > 0);
+}
+
+// ── EXPORT / IMPORT ────────────────────────────────────────────────────────────
+async function exportData(fmt) {
+  const products = await getAllProducts();
+  if (!products.length) { showToast('No products to export', true); return; }
+  let blob, filename;
+  if (fmt === 'json') {
+    blob = new Blob([JSON.stringify(products, null, 2)], { type: 'application/json' });
+    filename = 'shelfsafe-export-' + todayStr() + '.json';
+  } else {
+    const headers = 'id,name,expiry,brand,qty,shelf,addedAt';
+    const rows = products.map(p => [p.id, '"'+p.name+'"', p.expiry, '"'+(p.brand||'')+'"', p.qty||1, '"'+(p.shelf||'')+'"', p.addedAt].join(','));
+    blob = new Blob([[headers, ...rows].join('\n')], { type: 'text/csv' });
+    filename = 'shelfsafe-export-' + todayStr() + '.csv';
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  showToast('Exported ' + products.length + ' products');
+}
+
+function importData(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (!Array.isArray(data)) throw new Error();
+      let added = 0;
+      for (const p of data) {
+        if (p.name && p.expiry) { const { id, ...rest } = p; await dbOp('readwrite', s => s.add(rest)); added++; }
+      }
+      showToast('Imported ' + added + ' products'); updateAlertBadge();
+    } catch { showToast('Import failed — invalid file', true); }
+  };
+  reader.readAsText(file); e.target.value = '';
+}
+
+async function confirmClearAll() {
+  document.getElementById('modal-title').textContent = 'Clear All Data';
+  document.getElementById('modal-sub').textContent = 'This will permanently delete all products. Export first if needed.';
+  document.getElementById('modal-confirm-btn').onclick = async () => {
+    DB.transaction(STORE, 'readwrite').objectStore(STORE).clear();
+    closeModal(); showToast('All data cleared'); updateAlertBadge();
+  };
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+// ── STORAGE INFO ───────────────────────────────────────────────────────────────
+async function updateStorageInfo() {
+  if (navigator.storage && navigator.storage.estimate) {
+    const est = await navigator.storage.estimate();
+    const used = Math.round(est.usage / 1024);
+    const pct = Math.round((est.usage / est.quota) * 100);
+    const products = await getAllProducts();
+    document.getElementById('storage-info').textContent = products.length + ' products · ' + used + ' KB used (' + pct + '% of quota)';
+  }
+}
+
+// ── HELPERS ────────────────────────────────────────────────────────────────────
+function showToast(msg, isError=false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show' + (isError ? ' error' : '');
+  setTimeout(() => { t.className = ''; }, 2800);
+}
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function formatDate(dateStr) {
+  try { return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }); }
+  catch { return dateStr; }
+}
+function todayStr() { return new Date().toISOString().slice(0,10); }
+
+// ── BOOT ───────────────────────────────────────────────────────────────────────
+(async () => {
+  await initDB();
+  await requestPersist();
+  loadBrands();
+  updateAlertBadge();
+  document.getElementById('manual-row').style.display = 'flex';
+  ['s-critical','s-warn'].forEach(id => {
+    const el = document.getElementById(id);
+    const saved = localStorage.getItem(id);
+    if (saved) el.value = saved;
+    el.addEventListener('change', () => { localStorage.setItem(id, el.value); updateAlertBadge(); });
+  });
+})();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/shelfsafe/sw.js')
+      .then(r => console.log('SW registered:', r.scope))
+      .catch(e => console.error('SW failed:', e));
+  });
+}
+</script>
+</body>
+</html>
